@@ -1,324 +1,397 @@
 # Agent时代，RL后训练领域的主要矛盾与未来发展方向
 
-**——四位专家多轮研讨综述**
-
-> 本文基于四位来自不同领域的专家——RL后训练算法专家（Claude Opus 4.6）、Agent系统架构师（OpenAI GPT-5.4/Codex）、AI Infrastructure工程专家（Claude Opus 4.6）、AI业界资深投资顾问（Claude Opus 4.6）——围绕"Agent时代RL后训练领域的主要矛盾及未来发展方向"展开的多轮深度研讨，经主持人综合整理而成。讨论过程中进行了多轮网络搜索获取最新产业数据作为事实依据，所有关键论断均标注来源。
+**——多专家研讨综述**
 
 ---
 
 ## 引言：从Chatbot到Agent，RL后训练的范式跃迁
 
-预训练解决的是"知道什么"，RL后训练解决的是"怎么做"。当产业从Chatbot转向Agent（多轮、多步、与真实环境交互的智能体），RL后训练从"锦上添花"的对齐手段，变成了释放模型"行动能力"的**刚需基础设施**。
+预训练解决"知道什么"，RL后训练解决"怎么做"。当产业从Chatbot转向Agent（多轮、多步、与真实环境交互的智能体），RL后训练从对齐手段变成释放模型行动能力的**刚需基础设施**。
 
-事实支撑这一判断：
+事实支撑：DeepSWE-Preview（Together AI）通过纯RL训练（GRPO++），在SWE-bench Verified上达到59%[^1]；SA-SWE-32B（SkyRL）以纯RL达到39.4% pass@1[^2]；Meta Self-Play SWE-RL使用PPO验证了RL在代码Agent上的有效性[^3]。verl-agent框架已支持GRPO/PPO/DAPO/RLOO/REINFORCE++/GiGPO六种算法[^4]。
 
-- **DeepSWE-Preview**（Together AI）通过纯RL训练（GRPO++算法，基于verl扩展的rLLM框架），在SWE-bench Verified上达到59%的解决率（Pass@1: 42.2%，K=16混合scaling: 59%）[^1]
-- **SA-SWE-32B**（SkyRL）以纯RL达到39.4% pass@1，成本仅为同等模型的50%[^2]
-- **Self-Play SWE-RL**（Meta）使用PPO算法，验证了RL训练在代码Agent上的有效性[^3]
-- **verl-agent**框架已支持GRPO/PPO/DAPO/RLOO/REINFORCE++/GiGPO六种RL算法的Agent训练[^4]
+传统RLHF是单轮映射（Bandit问题），Agent RL是闭环控制策略（MDP回归）。这一范式跃迁体现在六个关键维度：
 
-这些结果表明，**RL后训练已成为构建高性能Agent的核心技术路径**。传统RLHF训练的是单轮映射函数（Bandit问题），Agent RL训练的是闭环控制策略（MDP结构回归）——状态转移由外部环境控制，模型必须处理部分可观测性和非平稳环境。
+| 维度 | LLM后训练 | Agentic RL后训练 | 引发的系统矛盾 |
+|------|----------|-----------------|--------------|
+| **数据** | 人标的，离线攒好再用 | 自己跑出来的，边跑边产用完即弃 | → 矛盾一：策略新鲜度 vs 异步效率 |
+| **奖励** | "像不像人"，拟合人类偏好 | "有没有用"，代码能跑、任务能成 | → 矛盾二：环境验证引入第三类算力 |
+| **循环** | 开环（先采数据再训模型） | 闭环（探索→反馈→进化，不停转） | → 矛盾三：闭环交互产生持久状态 |
+| **算力** | 训练吃大头，推理只是服务 | 推理吃大头，推训比从1:3反转为3:1 | → 矛盾二+四：算力结构反转 |
+| **环境** | 没有环境，偏好对比是"无状态"的 | 世界即训练场：沙箱、浏览器、工具链 | → 矛盾五：真实环境交互约束 |
+| **天花板** | 人类水平（模仿上限=标注者水平） | 超越人类（探索到标注者到不了的地方） | → 矛盾五：超人探索规模需求 |
 
-Agent RL系统采用"训推分离"与"异步执行"架构解决算力瓶颈，但同时引发了五对核心矛盾。这五对矛盾在逻辑上正交，分布于不同的系统抽象层，共同构成了Agent时代RL后训练的完整挑战图谱。
+这六个维度的同步变化，加上"训推分离+异步执行"的系统架构，引发了五对核心矛盾。
 
----
+### 一个贯穿全文的关键事实
 
-## 一个改变一切的关键发现：90%算力在推理侧
+> **Agent RL训练中，超过90%的运行时算力消耗在rollout推理上，而非梯度更新。** ——HuggingFace异步RL训练调研[^5]
 
-在展开五对矛盾之前，必须先建立一个贯穿全文的核心事实：
-
-> **Agent RL训练中，超过90%的运行时算力消耗在rollout推理（自回归序列生成）上，而非梯度更新。** ——HuggingFace异步RL训练调研[^5]
-
-Actor生成轨迹是推理，Reward评估是推理，只有参数更新是训练。
-
-但需要注意，**推理scaling和训练scaling是互补关系而非替代关系**。DeepSWE的数据清晰说明：RL训练将Pass@1从23%提升到42%（基础能力提升），推理时scaling进一步从42%放大到59%（能力放大）[^1]。Toby Ord的分析也指出，100倍推理算力将AIME从约20%提升到约80%，100倍RL训练算力从约33%提升到约66%[^6]。最新综述（2025）进一步指出"推理时缩放的优势因任务而异，随问题复杂度增加而递减"[^7]。
-
-**核心结论：RL训练构建基础能力，推理时scaling放大能力。90%算力在推理侧的事实，重塑了系统设计的优先级。**
+RL训练构建基础能力（DeepSWE Pass@1从23%→42%），推理时scaling放大能力（42%→59%）[^1]。两者互补，但推理消耗90%+算力。Toby Ord分析：100倍推理算力的收益需要约10,000倍RL训练算力才能匹配[^6]。
 
 ---
 
-## 第一部分：五对正交核心矛盾
+## 第一部分：五对正交核心矛盾 + 一个横切约束
 
 ### 矛盾一（算法层）：策略新鲜度 vs. 系统异步效率
 
-#### 矛盾本质
+#### 定位
 
-RL算法的数学理论要求训练数据由当前最新策略生成（on-policy），但分布式系统追求rollout与训练完全异步以最大化吞吐量。这是**一致性与性能的根本权衡**，无法靠硬件消除。
+RL算法要求训练数据由当前最新策略生成（on-policy），但分布式系统追求rollout与训练完全异步以最大化吞吐量。这是**一致性与性能的根本权衡**，无法靠硬件消除。
 
-#### 前因与后果
+#### 展开
 
-Agent场景下，一条轨迹包含多轮推理加工具调用，生成时间从秒级膨胀到分钟级。PPO的重要性比率方差随陈旧度步数指数级增长。SkyRL（UC Berkeley, 2025）实证：staleness超过阈值后训练直接发散[^8]。Meta的Self-Play SWE-RL论文明确指出："训练不稳定性阻碍进一步缩放，源于长horizon rollout的固有挑战"[^3]。
+1. **长轨迹延迟**：Agent完成一次工具调用链可能需数分钟，等待同步则GPU空转，不等则策略版本严重滞后。Meta Self-Play SWE-RL明确指出"训练不稳定性阻碍进一步缩放，源于长horizon rollout的固有挑战"[^3]。
+2. **MoE路由漂移**：异步场景下不同expert被不同版本策略激活，路由分布与训练时不一致，importance weight矫正的方差爆炸。
+3. **训推数值不一致放大staleness**：rollout（推理路径）和训练（梯度路径）使用不同batch size、不同算子甚至不同精度。PPO的importance ratio要求分子分母数值可比，如果批不变性缺失或浮点路径存在系统性偏差，ratio本身就带有方向性bias，在staleness基础上雪上加霜。
+4. **多模态异步不对齐**：Agent同时处理文本/图像/代码执行结果，不同模态生成延迟不同，进一步加剧异步程度。
 
-#### 解决途径与业界方案
+#### 解决方向
 
-| 方案 | 代表工作 | 机制 | 验证状态 |
-|------|---------|------|---------|
-| 陈旧度准入控制 | **SkyRL**（UC Berkeley） | 最大陈旧度预算，超限丢弃 | 已实验验证 |
-| 离线补偿 | **IMPALA/V-trace**（DeepMind） | 截断重要性采样 | 生产部署 |
-| 算法多样化 | **verl-agent** | 同时支持GRPO/PPO/DAPO/RLOO/GiGPO等6种算法 | 开源可用[^4] |
-
-**事实修正**：此前文章断言"GRPO将成为Agent RL主流"，经搜索验证需要修正。**GRPO因无需critic网络、实现简单而被广泛采用，但PPO在需要精细价值估计的场景仍不可替代**（如Meta Self-Play SWE-RL使用PPO[^3]）。DeepSWE使用的GRPO++融合了DAPO/Dr.GRPO/RLOO的改进[^1]，说明纯GRPO并不够用。
-
-#### 未来演进
-
-算法选择走向**场景化而非一统天下**：GRPO适合结果奖励清晰的场景（代码测试通过/失败），PPO适合需要步级价值估计的复杂交互。Stratified GRPO[^9]和GiGPO[^10]分别通过分层归一化和Group-in-Group策略修正了GRPO的异质性偏差，在QA任务上提升最高11.3分（Stratified GRPO）、在ALFWorld/WebShop上提升12%/9%（GiGPO）。
+| 方向 | 代表方案 | 验证状态 |
+|------|---------|---------|
+| 容忍off-policy的鲁棒算法 | V-trace截断IS、GRPO++（融合DAPO/Dr.GRPO/RLOO）[^1]、Stratified GRPO[^7]、GiGPO[^8] | 已实验验证 |
+| 系统级陈旧度控制 | SkyRL准入控制（超限丢弃）[^9] | 已实验验证 |
+| 训推一致性保证 | 批不变性设计、统一计算路径 | 工程实践 |
+| 混合策略 | 近期数据on-policy权重，远期数据降权但不丢弃 | 学术探索 |
 
 ---
 
-### 矛盾二（计算架构层）：推理主导的算力结构 vs. 训练优化的基础设施
+### 矛盾二（计算架构层）：推理/仿真/训练三类异构算力 vs. 单一优化基础设施
 
-#### 矛盾本质
+#### 定位
 
-Agent RL 90%+算力在推理，但当前AI芯片、集群、框架都为训练优化。**整个产业基础设施的优化方向与Agent RL的实际算力需求存在结构性错配。**
+Agent RL中推理（自回归生成，memory-bound）、仿真（物理模拟/环境交互，CPU-heavy或专用加速）、训练（梯度回传，compute-bound）三类workload在计算特征上根本不同，但底层硬件和框架倾向为单一workload优化。
 
-#### 后果
+#### 展开
 
-- 训练优化的集群（全胖树高带宽互联）对Agent RL过度配置——推理只需tensor parallel（2-8卡内互联）
-- NVIDIA已识别这一趋势：**Dynamo 1.0**于2026年进入生产级部署，被定位为"AI工厂的分布式推理操作系统"，运行DeepSeek-R1时吞吐提升最高30倍[^11]。Dynamo已被阿里云、CoreWeave、ByteDance、PayPal等广泛采用
-- **NVIDIA ProRL Agent**明确提出"Rollout-as-a-Service"解耦架构，将I/O密集型环境交互与GPU密集型策略更新分离[^12]
+1. **推理串行瓶颈**：90%算力在推理，推理需求随Agent复杂度指数增长，但Transformer自回归解码是逐token串行的，每步读取全部KV Cache，是memory-bandwidth的囚徒。70B模型全精度推理需约140GB显存，单卡放不下。
+2. **三类算力正交争抢**：推理、仿真（具身RL的物理引擎如Isaac Gym）、训练对GPU SM/显存带宽/CPU核心的争抢模式完全不同，同一集群混跑时互相干扰。
+3. **NVIDIA已布局推理服务层**：Dynamo 1.0进入生产级部署，30倍吞吐提升[^10]；ProRL Agent提出"Rollout-as-a-Service"解耦架构[^11]。这定义了行业对标基准。
 
-#### 解决途径
+#### 解决方向
 
-集群架构重构为**80-90%推理节点 + 10-20%训练节点**。推理集群持续生成rollout样本，训练节点周期性拉取batch更新参数再广播回推理集群。
-
-#### 对华为的关键意义
-
-昇腾910C推理性能约为H100的60%（DeepSeek实测数据）[^13]，特定prefill场景下效率接近H100[^14]。如果90%工作是推理，HCCS AllReduce带宽劣势的权重从100%降至10%。**推理主导的算力结构天然稀释了昇腾在训练互联上的短板。** 但NVIDIA Dynamo的生产级领先是严峻挑战——华为需要在推理调度层迅速构建对标能力。
+| 方向 | 代表方案 |
+|------|---------|
+| 推理加速打破串行 | 投机解码（Eagle3）、量化压缩（mxfp8/mxfp4）释放带宽 |
+| 推理服务调度 | NVIDIA Dynamo、KV-aware routing（llm-d） |
+| 异构分层调度 | 推理用vLLM引擎，仿真用CPU集群，训练用高互联GPU岛 |
+| 算子级适配 | 自动生成算子适配不同硬件和workload特征 |
 
 ---
 
 ### 矛盾三（状态管理层）：有状态Agent会话 vs. 无状态分布式调度
 
-#### 矛盾本质
+#### 定位
 
-Agent多轮交互产生持久状态（KV Cache、环境上下文、session历史），强绑定在特定物理节点。但分布式系统的调度范式是无状态的。
+Agent多轮交互产生持久状态（KV Cache、环境上下文、session历史），强绑定特定物理节点。但分布式系统的调度范式是无状态的。
 
-此矛盾合并了两个紧密耦合的问题：**KV Cache局部性**（Agent会话的KV Cache绑定在特定节点，无状态调度导致Cache Miss和反复Prefill）和**长尾Straggler**（Agent工具调用延迟呈极端长尾分布，等待期间KV Cache占显存却无计算，提高并发又导致显存枯竭和系统颠簸）。
+#### 展开
 
-#### 解决途径与业界方案
+1. **KV Cache局部性**：Agent多轮对话上下文可达128K-1M tokens，单请求KV Cache占数GB至数十GB。无状态调度将同一Agent请求分到无缓存节点，导致海量Cache Miss和反复Prefill。CXL Type 3内存扩展已于2026年进入生产级部署，双向吞吐128GB/s[^12]。
+2. **长尾Straggler锁定资源**：Agent工具调用延迟呈极端长尾分布（ms到分钟级），90%任务10步内完成但10%需200+步。长尾任务长时间锁定worker资源，阻碍全局效率。
+3. **会话状态不可迁移**：Agent与浏览器交互50步后积累的DOM状态、cookie、页面历史，worker故障时无法简单迁移到另一节点，整条轨迹作废。
+4. **具身RL的物理状态维度**：机器人的连续状态空间（关节角度、力矩、点云）序列化代价高且存在数值不可逆性，比文本Agent更严重。
 
-| 方案 | 代表工作 | 验证状态 |
-|------|---------|---------|
-| KV-Aware路由 | **llm-d**（IBM+Google+Red Hat）、**NVIDIA Dynamo** | Dynamo已生产级[^11] |
-| 分布式缓存 | **AWS SageMaker HyperPod** | 商用 |
-| 仿生准入控制 | **Concur框架**（AIMD拥塞控制） | 学术验证 |
-| 轨迹级编排 | **Heddle系统** | 学术验证 |
+#### 解决方向
 
-**事实修正**：此前文章称"CXL 2026年大规模落地不现实"，经搜索验证，CXL Type 3内存扩展已于2026年进入**生产级部署**，CXL 3.1基于PCIe 6.1物理层已在超大规模数据中心广泛部署，双向吞吐达128GB/s（x16链路），支持跨机架内存池化，超大规模客户TCO降低15-20%[^15]。这意味着KV Cache三级管理（HBM → CXL扩展内存 → 分布式RDMA池）的中间层已具备工程可行性。
+| 方向 | 代表方案 |
+|------|---------|
+| KV-Aware路由 | llm-d（IBM+Google+Red Hat）、NVIDIA Dynamo[^10] |
+| 分布式缓存 | AWS SageMaker HyperPod、Mooncake disaggregated KV store |
+| 仿生准入控制 | Concur框架（AIMD拥塞控制） |
+| 轨迹级编排 | Heddle系统（工具间隙RDMA热迁移） |
+| 分层checkpoint | 轻量级状态跟随worker，重量级状态异步持久化 |
 
 ---
 
 ### 矛盾四（资源编排层）：动态异构负载 vs. 静态同构硬件
 
-#### 矛盾本质
+#### 定位
 
-RLHF计算图包含多角色（Actor/Critic/Reward/Reference），不同阶段算力需求极度非对称。MoE稀疏性进一步放大负载异构性。但物理硬件拓扑静态同构。
+Agent RL的负载在时间（rollout/train交替）、空间（不同任务计算量差异10-100x）、算子（attention/FFN/tool-call混合）维度上高度动态，而数据中心硬件以同构GPU节点静态部署。**同时，算法半年一代但底层算子适配需要数月，多硬件生态并存但框架深度绑定单一生态。**
 
-GRPO的无critic设计已将系统复杂度降低（消除Critic模型），但Actor rollout和训练更新之间的资源需求仍然高度不对称。MoE架构（如DeepSeek-V3的256专家）的All-to-All通信在IB 400Gbps下占比可达30-40%。
+#### 展开
 
-#### 解决途径
+1. **时变锯齿负载**：rollout阶段GPU利用率30-40%（memory-bound），训练阶段90%+（compute-bound），静态分配要么浪费推理阶段算力，要么训练阶段不足。
+2. **算法迭代速度 vs 底层适配周期**：RL算法半年一代（PPO→GRPO→GiGPO），新架构不断涌现（MoE、多模态混合），Agent场景reward function千变万化，但一个新算子从需求到上线通常3-6个月，算法团队迭代周期仅2-4周。
+3. **多硬件生态并存**：实际部署混合NVIDIA GPU和华为Ascend NPU，同一算子在DaVinci架构（Cube/Vector/Scalar单元）和SIMT模型（warp/shared memory/tensor core）上的最优实现完全不同。当前昇腾无公开RL训练benchmark[^13]。
+4. **序列长度动态性**：Agent输出从10 token的shell命令到2000 token的代码块，batch内padding浪费和负载不均衡严重。
 
-| 方案 | 代表工作 | 机制 |
-|------|---------|------|
-| 动态参数重分配 | **ReaLHF**（清华，OpenPSI） | 自动搜索执行计划，运行时重组模型参数 |
-| 定制MoE通信栈 | **ByteDance MegaScale-Infer** | 从零打造M2N通信库，乒乓流水线掩盖通信 |
-| Rollout解耦 | **NVIDIA ProRL Agent** | 将环境交互与策略更新解耦为独立服务[^12] |
+#### 解决方向
 
-**华为的系统级应对**：华为CloudMatrix 384通过UB平面（每NPU 7x224Gbps）和6912个800G光模块实现总带宽超5.5Pbps[^16]，在系统级弥补了单链路HCCS带宽不足的劣势。
-
----
-
-### 矛盾五（Agent特性层）：真实环境交互 vs. 可扩展的策略学习
-
-#### 矛盾本质
-
-Agent直接作用于真实环境，探索有不可逆代价、奖励稀疏延迟、信用分配困难。这两个子问题共享一个深层结构——**奖励信号的信息贫瘠性**。
-
-#### 解决途径
-
-**安全探索**：
-- CMDP约束优化：SAFE-RLHF将helpfulness和harmlessness解耦为双目标[^17]
-- "可逆域多做快判，不可逆域先想后做"——操作可逆性分类本身应由RL训练学习
-
-**信用分配**：
-
-**事实修正**：此前文章将PRM（过程奖励模型）定位为RL训练时的信用分配信号，经搜索验证需要重要修正。**PRM在Agent场景中主要用于推理时引导和纠错，而非RL训练信号**：
-- **SWE-PRM**在推理时介入，将SWE-bench解决率从40.0%提升至50.6%（+10.6pp），但不参与RL训练[^18]
-- **AgentPRM**使用Monte Carlo rollout估计过程奖励，在ALFWorld上3B模型超过GPT-4o[^19]
-- 当前Agent RL训练的主流奖励信号仍是**纯结果奖励**（二元通过/失败），而非过程奖励
-
-RL训练层面的信用分配，更有效的方案是**算法层的分层advantage估计**：
-- **GiGPO**（NeurIPS 2025）引入episode-level和step-level两层分组，在ALFWorld/WebShop上分别比标准GRPO提升12%/9%[^10]
-- **Stratified GRPO**通过分层归一化修正跨层偏差[^9]
-
-**大规模并行Rollout**：
-
-Agent RL的真正基础设施瓶颈在于**长horizon rollout的环境交互成本和训练稳定性**[^3][^12]。NVIDIA ProRL Agent已提出"Rollout-as-a-Service"架构[^12]，SWE-MiniSandbox[^20]优化了容器编排成本。以SWE-bench为例，每个sandbox需2-4 vCPU + 4-8GB内存，1000并行需约4000 vCPU + 8TB内存。
-
-**关于World Model的共识**：经多轮辩论，四位专家确认——**电脑端Agent场景不需要显式环境模拟器（world model）**。所有SWE-bench/WebArena SOTA方案均未使用world model。然而，**隐式world model——即模型通过RL训练内化的CoT规划能力——是Agent最核心的能力**。OpenAI o3/o4的inference-time scaling本质是用长链思维链做mental simulation。因此：**RL训练是构建Agent隐式规划能力的唯一可扩展路径。**
+| 方向 | 代表方案 |
+|------|---------|
+| 弹性资源编排 | ReaLHF动态参数重分配（清华）、推理/训练实例动态伸缩 |
+| 算子自动生成+验证 | AscendCraft[^14]（98.1%编译成功）、AscendOptimizer[^15]（127个算子） |
+| 跨平台精度基线 | 在Ascend等多硬件上建立RL后训练reference实现 |
+| RL框架生态化 | 降低迁移门槛，主流模型开箱支持，精度对齐基线 |
+| 定制通信栈 | ByteDance MegaScale-Infer M2N[^16]、HCCL专项优化 |
 
 ---
 
-## 第二部分：算子自动生成——必要的基础能力，定位需务实
+### 矛盾五（Agent特性层）：真实环境交互约束 × 超人探索规模需求 vs. 可扩展高效策略学习
 
-### 事实基础
+#### 定位
 
-华为已有两项前沿工作，经搜索验证数据如下：
+Agent必须在真实环境获得奖励信号，但真实交互不可并行、不可回滚、代价高昂。同时，"超越人类"的目标要求探索到标注者到不了的地方，所需的rollout规模、轨迹长度、失败容忍度远超传统RLHF。环境约束限制了数据供给，超人探索放大了数据需求——双重挤压下的可扩展高效学习是Agent RL最根本的矛盾。
 
-- **AscendCraft**（2025.1, arxiv 2601.22760）：基于LLM转译生成AscendC kernel，98.1%编译成功率，90.4%功能正确性，46.2%达到或超过PyTorch eager性能[^21]
-- **AscendOptimizer**（2026.3, arxiv 2603.23566）：无需训练的profiling-in-the-loop演化搜索，覆盖127个真实AscendC算子[^22]
+#### 展开
 
-### 专家的批判性评估
+1. **样本效率瓶颈**：电脑端Agent每次操作需等真实API返回，具身机器人每次试错有安全代价，两者都无法像LLM对话那样批量生成。
+2. **环境难度分布 vs Agent能力匹配**：即使有了并行sandbox或仿真环境，如果投喂大量过于简单或过于困难的任务，rollout的信息量极低，训练效率崩塌。这是curriculum RL的核心问题。
+3. **电脑端 vs 具身端的路线分叉**：
+   - **电脑端**：环境确定性高（代码执行结果确定），sandbox replay即可，**不需要显式world model**。所有SWE-bench/WebArena SOTA均未使用world model[^1][^2][^3]。
+   - **具身端**：物理交互不可逆、代价高、存在sim-to-real gap，**world model（物理仿真器）是刚需**。sim-to-real分阶课程本质也是难度匹配问题——仿真精度从低到高就是一种hardness课程。
+4. **隐式world model是RL的产物**：OpenAI o3/o4的inference-time scaling本质是用CoT做mental simulation。这种内化的规划能力是RL后训练的直接产物——**RL训练是构建Agent隐式规划能力的唯一可扩展路径**。
 
-**性能校准**：46.2%对标的是PyTorch eager mode，而eager mode仅为手写优化kernel的50-70%。换算后，自动生成算子约为手写最优的**25-35%**。这对性能敏感路径远远不够。
+#### 解决方向
 
-**微架构差异是根本限制**：昇腾DaVinci架构（Cube/Vector/Scalar单元+独立数据搬运）与NVIDIA SIMT模型（warp/shared memory/tensor core）在编程模型上有本质区别。CUDA kernel的优化假设（bank conflict、warp divergence、寄存器压力）在昇腾上几乎完全不适用。语义级翻译做到功能正确容易，性能最优极难。
-
-**务实定位**：
-- 算子自动生成的真正价值在**长尾算子覆盖度**——CUDA生态的护城河不是Top 20算子（华为可手工追平），而是数万个社区长尾算子
-- 商业价值是**降低客户迁移门槛**：把"算子不支持导致项目卡住"的硬阻断变成"性能差一点但能跑"的软降级
-- 策略：**80%长尾算子自动覆盖 + 20%关键路径算子手工深度优化**
-- 应支持Triton前端、自研昇腾后端编译，借社区势能
-
----
-
-## 第三部分：竞争格局（经搜索验证）
-
-### 三大路线对比（2026年最新数据）
-
-| 维度 | NVIDIA | Google | 华为 |
-|------|--------|--------|------|
-| 推理性能 | H100/B200标杆 | TPU v5p | 910C约H100的60%[^13] |
-| 推理调度 | **Dynamo 1.0生产级**，30x吞吐提升[^11] | 内部闭环 | vLLM-Ascend v0.13.0[^23] |
-| Agent RL框架 | **ProRL Agent** Rollout-as-a-Service[^12] | 未公开 | 无公开RL benchmark |
-| 节点内互联 | NVLink 900GB/s | ICI 4.8Tbps | HCCS ~392GB/s |
-| 系统级互联 | — | — | CloudMatrix 384 总带宽5.5Pbps[^16] |
-| 出货规模 | 全球主导 | 仅GCP | 2025年70-80万颗[^24] |
-
-### 关键竞争态势
-
-1. **NVIDIA Dynamo生态快速固化**：已被阿里云、ByteDance、CoreWeave等广泛采用[^11]，正在成为推理调度事实标准。华为窗口期紧迫。
-2. **vLLM-Ascend超预期**：v0.13.0由vLLM官方社区维护，支持Qwen3/DeepSeek V3/R1，已实现W4A4量化和并行投机解码[^23]。这是华为推理生态的重要基石。
-3. **昇腾RL训练空白**：无公开的PPO/GRPO benchmark，生态聚焦SFT/预训练[^14]。RL训练约落后12-18个月。
+| 方向 | 代表方案 |
+|------|---------|
+| 环境并行化 | 大规模sandbox集群（SWE-MiniSandbox[^17]）、NVIDIA ProRL Rollout-as-a-Service[^11] |
+| 难度课程设计 | Agent hardness工程：自动化难度分级、动态调控环境分布 |
+| 具身仿真+sim-to-real | Isaac Gym/MuJoCo并行仿真→物理世界少量验证 |
+| 推理时纠错 | SWE-PRM推理时介入+10.6pp[^18]、AgentPRM[^19] |
 
 ---
 
-## 第四部分：为什么RL后训练对华为更重要
+### 横切约束：系统优化激进度 vs. RL训练精度保证
 
-### 1. 推理主导稀释训练短板
+#### 定位
 
-90%算力在推理侧意味着HCCS训练互联劣势的权重从100%降至10%。910C推理能力虽仅为H100的约60%，但prefill效率在特定模型上接近H100[^14]。
+所有系统优化（异步、量化、算子替换、硬件迁移）都引入数值偏差，而RL训练对偏差累积极度敏感。这贯穿矛盾一至五，是每个矛盾追求效率时的"宪法约束"。
 
-### 2. 全栈垂直整合的差异化
+#### 展开（三个维度）
 
-并行Rollout需要CPU密集+存储I/O密集+高效容器调度，更像超大规模CI/CD系统。鲲鹏+昇腾+华为云容器调度的全栈组合有差异化优势。CloudMatrix 384的5.5Pbps系统级带宽弥补单链路不足[^16]。
+**精度维度**：
+- 异步偏差：off-policy数据的importance sampling矫正在长轨迹下方差爆炸
+- 量化偏差：mxfp8/mxfp4舍入误差改变策略分布尾部行为，RL探索依赖低概率动作采样，量化误差与梯度估计误差耦合后可能产生系统性偏置
+- 算子替换偏差：自动生成或投机解码引入的分布偏移在RL长链条（rollout→advantage→ratio→loss→梯度）中逐级放大
+- 硬件迁移偏差：昇腾NPU与NVIDIA GPU的浮点实现差异（特别是bf16/FP16的舍入模式），经数千步迭代后累积为可观测的策略差异
 
-### 3. RL训练是Agent核心能力的唯一路径
+**效率维度**：
+- 显存墙：70B模型全精度推理需~140GB，量化不是激进选择而是被迫选择
+- 通信墙：MoE All-to-All通信在IB 400Gbps下占比30-40%
 
-Agent的隐式规划能力（CoT推理）是RL后训练的直接产物[^1][^3]。掌握高效的RL基础设施，就掌握了Agent能力的生产工具。
+**生态维度**：
+- CUDA生态数百万开发者的肌肉记忆和数万经生产验证的库
+- 昇腾DaVinci架构与SIMT模型编程范式本质不同，语义翻译天花板低
+- 华为CloudMatrix 384通过5.5Pbps系统级带宽弥补单链路不足[^20]，但软件生态差距是核心瓶颈
 
-### 4. 国产替代刚需
+**特别注意**：RL对数值噪声的敏感度远高于预训练。预训练中随机种子差异最终收敛到同一loss；但RL的policy gradient方差本身极大，额外的非确定性数值噪声导致同一checkpoint两次运行得到不同reward曲线，无法区分算法改进还是数值抖动——**调参变成玄学**。bf16确定性计算和mxfp8/mxfp4确定性计算分别解决不同精度层级的可复现性问题。
 
-2025年昇腾出货70-80万颗[^24]，装机量基本盘足够大。2026年仅910C产量目标翻倍至约60万颗，全系列可达160万颗。国内大模型公司在RL训练基础设施上别无选择。
+#### 解决方向
+
+| 方向 | 机制 |
+|------|------|
+| 分层精度预算 | 为每个优化维度设可容忍偏差上界，理论分析+经验监控确保总偏差在RL收敛容差内 |
+| 确定性计算 | bf16确定性保证基础精度可复现；mxfp8/mxfp4确定性保证低精度路径可控 |
+| 精度基线建立 | 在目标硬件（Ascend等）上建立多模型reference实现，作为度量标尺 |
+| 算子精度前置拦截 | 自动扫描验证将算子精度问题从"RL训练时事后排查"前移到"算子生成时事前拦截" |
 
 ---
 
-## 第五部分：华为计算产品线的行动建议
+## 第二部分：技术布局与矛盾解决方案的映射
+
+### 技术全景（分层次）
+
+我们参与的11项技术分布在不同层次：
+
+| 层次 | 技术 |
+|------|------|
+| **范式级**（定义问题空间） | 1. 异步长程MoE多模态RL训推范式和精度保证算法<br>7. 具身智能RL |
+| **算法级**（具体解法） | 2. 4bit（mxfp8/mxfp4）低精RL训推范式和精度恢复算法<br>3. 推理投机Eagle3类算法<br>9. bf16确定性计算 和 低精度（mxfp8/mxfp4）确定性计算 |
+| **方法论级**（原则和方法） | 4. Agent hardness工程<br>8. 训推一致性（含批不变性） |
+| **工程工具级**（基础设施） | 5. 算子自动生成、自动优化agent系统<br>6. Ascend平台多种模型后训练精度基线<br>10. RL后训练框架易用性（精度对齐、主流模型支持）<br>11. 算子问题自动扫描和验证 |
+
+### 完整映射矩阵
+
+| 技术 | 矛盾一<br>策略新鲜度vs异步 | 矛盾二<br>异构算力vs单一基础设施 | 矛盾三<br>有状态vs无状态 | 矛盾四<br>动态负载vs静态硬件 | 矛盾五<br>真实交互vs可扩展学习 | 横切约束<br>优化vs精度 |
+|------|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1. 异步长程MoE RL | **★主攻** | **★主攻** | ◆涉及 | ◆涉及 | ◆涉及 | **★主攻** |
+| 2. 4bit低精RL | ○弱 | ◆涉及 | — | **★主攻** | — | **★主攻** |
+| 3. Eagle3投机推理 | ○弱 | **★主攻** | ○弱 | ◆涉及 | — | ◆涉及 |
+| 4. Agent hardness | ◆涉及 | — | ◆涉及 | — | **★主攻** | — |
+| 5. 算子自动生成优化 | — | ◆涉及 | — | **★主攻** | — | ◆涉及 |
+| 6. Ascend精度基线 | — | ◆涉及 | — | **★主攻** | — | **★主攻** |
+| 7. 具身智能RL | ◆涉及 | ◆涉及 | **★主攻** | — | **★主攻** | — |
+| 8. 训推一致性 | **★主攻** | ○弱 | — | — | — | **★主攻** |
+| 9. bf16和低精度确定性计算 | — | ◆涉及 | — | — | — | **★主攻** |
+| 10. RL框架易用性 | ○弱 | ◆涉及 | — | **★主攻** | ○弱 | **★主攻** |
+| 11. 算子自动扫描验证 | — | ◆涉及 | — | **★主攻** | — | **★主攻** |
+
+### 逐矛盾技术支撑链
+
+#### 矛盾一 → 技术1 + 技术8
+
+```
+策略新鲜度 vs 异步效率
+  ├─ 算法层解法 → 技术1：异步MoE RL范式（容忍off-policy的鲁棒算法+精度保证）
+  ├─ 数值保证 → 技术8：训推一致性（确保importance ratio计算无系统性bias）
+  └─ 间接缓解 → 技术3（推理加速缩短rollout时间减轻staleness）
+```
+
+#### 矛盾二 → 技术1 + 技术3 + 技术2 + 技术5
+
+```
+推理/仿真/训练异构算力 vs 单一基础设施
+  ├─ 推理侧加速 → 技术3：Eagle3投机解码（打破自回归串行瓶颈）
+  ├─ 推理侧压缩 → 技术2：4bit量化释放显存带宽
+  ├─ 算子适配 → 技术5：自动生成适配不同硬件的算子
+  └─ 异构编排范式 → 技术1：MoE条件激活降低推理算力需求
+```
+
+#### 矛盾三 → 技术7 + 技术1（间接）
+
+```
+有状态Agent会话 vs 无状态分布式调度
+  ├─ 具身端极端有状态 → 技术7：具身RL（物理状态管理）
+  └─ 长程episode状态 → 技术1：长程RL范式（隐含长上下文状态管理）
+```
+
+#### 矛盾四 → 技术5 + 技术6 + 技术10 + 技术11 + 技术2
+
+```
+动态异构负载 vs 静态同构硬件
+  ├─ 算子层快速适配 → 技术5：算子自动生成（缩短适配周期）
+  │                  → 技术11：算子自动扫描验证（质量闭环）
+  ├─ 多硬件基线 → 技术6：Ascend精度基线（让非NVIDIA硬件成为可用选项）
+  ├─ 框架层降门槛 → 技术10：RL框架易用性（精度对齐+主流模型支持）
+  └─ 有效算力放大 → 技术2：4bit量化（同一硬件有效算力扩4倍）
+```
+
+#### 矛盾五 → 技术4 + 技术7
+
+```
+真实环境交互 vs 可扩展策略学习
+  ├─ 难度课程设计 → 技术4：Agent hardness工程（动态调控环境分布）
+  ├─ 具身仿真路线 → 技术7：具身智能RL（sim-to-real分阶课程）
+  └─ 隐式规划能力 → 技术1（RL训练内化CoT规划能力）
+```
+
+#### 横切约束 → 技术1 + 技术2 + 技术6 + 技术8 + 技术9 + 技术10 + 技术11
+
+```
+系统优化激进度 vs RL训练精度保证
+  ├─ 异步精度保证 → 技术1的"精度保证算法"
+  ├─ 训推数值一致 → 技术8：训推一致性/批不变性
+  ├─ 确定性计算 → 技术9：bf16确定性 + mxfp8/mxfp4确定性
+  ├─ 量化精度恢复 → 技术2的"精度恢复算法"
+  ├─ 精度度量标尺 → 技术6：Ascend精度基线
+  ├─ 算子精度前置拦截 → 技术11：算子自动扫描验证
+  └─ 框架精度对齐 → 技术10：RL框架的精度对齐基线
+```
+
+---
+
+## 第三部分：Gap分析——哪些矛盾我们做得还不够
+
+### 各矛盾覆盖度总览
+
+| 矛盾 | 覆盖度 | 评估 |
+|------|--------|------|
+| 矛盾一（策略新鲜度vs异步） | **60%** | 算法层和数值保证强，但缺系统调度层 |
+| 矛盾二（异构算力vs基础设施） | **50%** | 算子级和单点加速有，但缺推理服务中间件 |
+| **矛盾三（有状态vs无状态）** | **30%** | **最大gap**，几乎无系统层面的状态管理技术 |
+| 矛盾四（动态负载vs静态硬件） | **85%** | 从算子到框架链条完整 |
+| 矛盾五（真实交互vs可扩展学习） | **70%** | hardness和具身覆盖，缺仿真保真度技术 |
+| 横切约束（优化vs精度） | **90%** | 多层防线最充分 |
+
+### Gap 1（P0）：矛盾三——分布式状态管理
+
+**我们在"推理服务的状态管理"这一中间件层几乎为零。** 具体缺失：
+- KV Cache生命周期管理（跨节点迁移、持久化、恢复）
+- Session粘性路由（同一Agent后续请求路由到持有KV Cache的节点）
+- 半完成episode的热迁移（权重更新后进行中会话如何处理）
+- 对标方案：Mooncake disaggregated KV store、NVIDIA Dynamo routing
+
+**建议**：这是一个结构性盲区。随着Agent场景从短对话走向长程交互，这个gap会从"可以绕过"变成"无法回避"。
+
+### Gap 2（P1）：矛盾二——推理服务调度层
+
+**我们有算子级硬件适配（技术5/6/11），有单点推理加速（技术3），但没有技术对标NVIDIA Dynamo所解决的中间层问题**——推理请求智能路由、多实例负载均衡、prefill/decode分离调度。Dynamo已进入生产级并被阿里云、ByteDance等广泛采用[^10]。
+
+**建议**：技术1的范围可扩展至推理调度层，或新增专项技术。
+
+### Gap 3（P2）：矛盾一——异步调度器
+
+**技术1聚焦算法（staleness存在时如何收敛），但缺乏系统调度层面"如何最小化staleness"的专项技术。** 对标SkyRL的staleness control——在系统层面动态调整rollout worker和trainer的节奏。
+
+**建议**：可纳入技术1的系统层工作项。
+
+### Gap 4（观察）：矛盾五——仿真保真度-效率权衡
+
+**具身RL（技术7）定义了问题，但缺少仿真保真度自动调节的专项技术**——如何在仿真加速和真实性之间自动权衡。这可能更偏应用层。
+
+### 根本观察
+
+> **我们的技术栈在"算法-精度-算子-框架"这条纵轴上非常扎实（矛盾四和横切约束覆盖度85-90%），但在"推理服务中间件"这条横轴上存在结构性空白（矛盾三覆盖度仅30%）。**
+
+---
+
+## 第四部分：为什么RL后训练对华为计算产品线在Agent时代变得更重要
+
+### 推理主导稀释训练短板
+
+90%算力在推理侧意味着HCCS训练互联劣势的权重从100%降至10%。昇腾910C推理性能约为H100的60%[^21]，但prefill效率在特定模型上接近H100[^22]。
+
+### 全栈垂直整合的差异化
+
+鲲鹏CPU+昇腾NPU+HCCL通信+CloudMatrix互联的组合，在Agent RL的异构需求下有差异化优势。具身RL尤其放大这一优势——仿真（鲲鹏）、感知（昇腾）、决策（昇腾）、训练（昇腾）四环节在统一生态内深度协同。
+
+### RL是Agent核心能力的唯一路径
+
+Agent的隐式规划能力（CoT推理）是RL后训练的直接产物。掌握高效RL基础设施，就掌握了Agent能力的生产工具。
+
+### 国产替代刚需
+
+2025年昇腾出货70-80万颗[^23]，2026年910C目标翻倍至约60万颗。国内大模型公司别无选择。
+
+---
+
+## 第五部分：华为行动建议
 
 ### 战略定位
 
-**"推理为矛、RL为盾"——以推理吞吐极致优化为核心竞争力，以RL训练生态兼容为基本盘。**
+**"推理为矛、RL为盾"——以推理吞吐极致优化为核心竞争力，以RL训练精度生态为基本盘。**
 
-### 分层投资策略
+### 行动优先级
 
-| 层次 | 策略 | 投资占比 |
-|------|------|---------|
-| 上层：PyTorch API兼容 | 全力适配verl/rLLM在昇腾运行 | 10-15% |
-| **中层：Ascend Agent调度Runtime** | **以推理吞吐为第一优化目标，对标Dynamo** | 40-50% |
-| 底层：CANN算子+通信库 | 关键路径手工优化+长尾自动生成+HCCL专项优化 | 35-40% |
-
-### 五大行动
-
-**行动一（最高优先级）：推理吞吐极致优化**
-
-目标：910C推理性能从H100的60%向75-80%逼近。
-- vLLM-Ascend深度优化（已有v0.13.0基础[^23]，需进一步做PagedAttention昇腾原生实现）
-- KV Cache三级管理：HBM → CXL扩展内存（CXL已进入生产级部署[^15]，可以上马）→ 分布式RDMA池
-- HCCL通信库针对RL推理场景专项优化（推理集群内allgather、训练-推理跨集群参数广播）
-
-**行动二（高优先级）：Agent RL调度Runtime**
-
-以推理吞吐为第一优化目标，对标NVIDIA Dynamo[^11]：
-- Session粘性路由 + 有界陈旧度异步调度
-- 兼容verl/rLLM框架API
-- 与Rollout环境平台统一API层
-
-**行动三（中高优先级）：大规模并行Rollout环境平台**
-
-鲲鹏+昇腾全栈支撑数千sandbox并行，对标NVIDIA ProRL Agent的Rollout-as-a-Service架构[^12]：
-- 轻量容器调度（对标Firecracker ms级启动）
-- Reward/PRM serving与推理集群共享（避免独立部署浪费算力）
-- overlayfs/CoW文件系统支撑高并发repo快照
-
-**行动四（中高优先级，与行动三平级）：算子工具链闭环**
-
-AscendCraft+AscendOptimizer持续迭代[^21][^22]：
-- 短期目标：从46.2%提升至60-70% PyTorch eager
-- Triton前端兼容 + 昇腾后端编译
-- 算子工具链是推理优化的前置依赖——不先补算子缺口，推理吞吐天花板被锁死
-
-**行动五（中低优先级）：RL训练生态跟进**
-
-基于verl/rLLM/verl-agent[^4]开源方案补位：
-- 优先支持GRPO系列（GRPO++/Stratified GRPO/GiGPO），同时保证PPO可用
-- 昇腾RL训练落后12-18个月，但90%算力在推理可稀释影响
-- 借开源社区势能，不追求全面对标NVIDIA RL栈
-
-### 需警惕的风险
-
-1. **Dynamo生态固化风险**：NVIDIA Dynamo已进入生产级并被广泛采用[^11]，华为推理调度Runtime的窗口期可能只有18-24个月
-2. **推理性能不能只是"够用"**：910C 60%的性能在只有华为可选时够用，一旦竞争加剧则不够
-3. **RL训练空白的连锁效应**：无公开RL benchmark会影响客户信心，即使RL训练只占10%算力
-
----
-
-## 结语
-
-Agent时代RL后训练的核心图景，可以用五对正交矛盾完整刻画：**算法层**的策略新鲜度困境、**计算架构层**的推理-训练错配、**状态管理层**的有状态-无状态冲突、**资源编排层**的动态-静态错位、**Agent特性层**的真实环境交互代价。五个维度各自独立，又通过"90%算力在推理"这一贯穿性事实紧密关联。
-
-**最关键的产业洞察：Agent RL本质上是一个推理问题，不是一个训练问题。** 这颠覆了"训练芯片为王"的传统竞争逻辑。RL训练构建Agent的基础能力（Pass@1），推理时scaling放大这一能力（Pass@1→Pass@K），两者互补但推理消耗90%+的算力。
-
-对华为计算产品线而言，"推理为矛、RL为盾"是最务实的路径——以推理吞吐极致优化为核心竞争力，以RL训练生态兼容为基本盘，以全栈垂直整合（鲲鹏+昇腾+HCCL+CloudMatrix）为差异化壁垒。**NVIDIA Dynamo的生产级部署和ProRL Agent的Rollout-as-a-Service架构，定义了华为必须对标的行业基准。窗口期紧迫，但方向清晰。**
+| 优先级 | 行动 | 对应矛盾 | 对应技术 |
+|--------|------|----------|---------|
+| **最高** | 推理吞吐极致优化（vLLM-Ascend深化、KV Cache三级管理、HCCL推理专项） | 矛盾二 | 技术3, 5 |
+| **高** | 精度基础设施（训推一致性、确定性计算、Ascend基线、算子扫描验证） | 横切约束 | 技术6, 8, 9, 11 |
+| **高** | 异步MoE RL范式落地 | 矛盾一 | 技术1 |
+| **中高** | RL框架生态化（易用性、多模型支持、多硬件适配） | 矛盾四 | 技术10, 2 |
+| **中高** | Agent环境工程（hardness课程、并行sandbox） | 矛盾五 | 技术4 |
+| **中** | 具身智能RL平台（鲲鹏仿真+昇腾决策全栈） | 矛盾五+三 | 技术7 |
+| **需关注** | 推理服务中间件（**当前gap，对标Dynamo**） | 矛盾二+三 | 待新增 |
 
 ---
 
 ## 参考来源
 
-[^1]: Together AI, "DeepSWE-Preview: Qwen3-32B + Pure RL, 59% SWE-Bench Verified", together.ai/blog/deepswe
+[^1]: Together AI, "DeepSWE-Preview: Qwen3-32B + Pure RL, 59% SWE-Bench Verified"
 [^2]: SkyRL, "SA-SWE-32B: 39.4% pass@1 at 2x lower cost"
 [^3]: Meta, "Self-Play Preference Optimization for SWE", arxiv 2512.18552
-[^4]: verl-agent, "Multi-algorithm Agent RL framework", github.com/langfengQ/verl-agent
-[^5]: HuggingFace, "Async RL Training Landscape Survey" — 90%+ runtime on rollout generation
-[^6]: Toby Ord, "How Well Does RL Scale?", tobyord.com/writing/how-well-does-rl-scale
-[^7]: "A Survey on Inference-Time Scaling for Complex Tasks", arxiv 2504.00294
-[^8]: SkyRL (UC Berkeley, 2025), staleness-aware admission control
-[^9]: Zhu et al., "Stratified GRPO: Correcting Cross-Stratum Bias", arxiv 2510.06214
-[^10]: "GiGPO: Group-in-Group Policy Optimization", NeurIPS 2025, arxiv 2505.10978
-[^11]: NVIDIA, "Dynamo 1.0 enters production — 30x throughput on DeepSeek-R1", nvidianews.nvidia.com, 2026
-[^12]: NVIDIA, "ProRL Agent: Decoupled Rollout-as-a-Service for Multi-Turn LLM Agents at Scale"
-[^13]: Tom's Hardware / TrendForce, "Ascend 910C delivers ~60% H100 inference performance (DeepSeek实测)"
-[^14]: TrendForce, "910C prefill efficiency competitive in specific scenarios"
-[^15]: CXL Consortium / Industry reports, "CXL Type 3 enters production deployment 2026, CXL 3.1 at 128GB/s x16"
-[^16]: SemiAnalysis, "Huawei CloudMatrix 384: 5.5Pbps total bandwidth via UB plane + 6912x 800G optical modules"
-[^17]: Dai et al., 2023, "SAFE-RLHF: Safe Reinforcement Learning from Human Feedback"
-[^18]: "SWE-PRM: Course-Correcting Code Agents", arxiv 2509.02360 — inference-time +10.6pp
-[^19]: "AgentPRM", arxiv 2502.10325 — 3B model surpasses GPT-4o on ALFWorld
-[^20]: "SWE-MiniSandbox: Lightweight container orchestration for agent RL", arxiv 2602.11210
-[^21]: "AscendCraft: LLM-based AscendC kernel generation — 98.1% compilation, 46.2% PyTorch eager", arxiv 2601.22760
-[^22]: "AscendOptimizer: Training-free profiling-in-the-loop evolutionary search, 127 operators", arxiv 2603.23566
-[^23]: vLLM-Ascend v0.13.0, github.com/vllm-project/vllm-ascend — supports Qwen3/DeepSeek V3/R1, W4A4, speculative decoding
-[^24]: Mizuho Securities / Reuters / TechNode, "70-80万 Ascend 910 chips shipped 2025; 910C targeting ~600K in 2026"
-
----
-
-*本文基于2026年4月专家研讨会整理。研讨过程包含四轮交叉辩论、两轮网络搜索验证、一轮框架重构。所有关键论断均经事实核查并标注来源。*
+[^4]: verl-agent, github.com/langfengQ/verl-agent
+[^5]: HuggingFace, "Async RL Training Landscape Survey"
+[^6]: Toby Ord, "How Well Does RL Scale?"
+[^7]: Zhu et al., "Stratified GRPO", arxiv 2510.06214
+[^8]: "GiGPO: Group-in-Group Policy Optimization", NeurIPS 2025, arxiv 2505.10978
+[^9]: SkyRL (UC Berkeley, 2025), staleness-aware admission control
+[^10]: NVIDIA, "Dynamo 1.0 enters production — 30x throughput", 2026
+[^11]: NVIDIA, "ProRL Agent: Decoupled Rollout-as-a-Service"
+[^12]: CXL Consortium, "CXL Type 3 enters production deployment 2026, CXL 3.1 at 128GB/s"
+[^13]: TrendForce / Tom's Hardware, Ascend 910C RL ecosystem status
+[^14]: "AscendCraft", arxiv 2601.22760 — 98.1% compilation, 46.2% PyTorch eager
+[^15]: "AscendOptimizer", arxiv 2603.23566 — 127 AscendC operators
+[^16]: ByteDance MegaScale-Infer M2N communication stack
+[^17]: "SWE-MiniSandbox", arxiv 2602.11210
+[^18]: "SWE-PRM", arxiv 2509.02360 — inference-time +10.6pp
+[^19]: "AgentPRM", arxiv 2502.10325
+[^20]: SemiAnalysis, "Huawei CloudMatrix 384: 5.5Pbps"
+[^21]: Tom's Hardware / TrendForce, "910C ~60% H100 inference"
+[^22]: TrendForce, "910C prefill efficiency competitive in specific scenarios"
+[^23]: Mizuho / Reuters / TechNode, "70-80万 Ascend chips shipped 2025"
