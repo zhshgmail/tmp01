@@ -56,3 +56,9 @@
 32. **Harness工程纳入路线图：SWE-bench参考harness实现**（L2+L1联合提出）：路线图在基础设施层和差异化层都有人力分配，但harness工程——"客户用起来的第一步"——完全没有投入。Gate 2 Demo需要包含SWE-bench Agent RL训练的参考harness实现文档和代码，确保客户看了Demo之后知道自己怎么用
 33. **Gate 2 Demo的商务模型维度**（L3提出）：客户看Demo不只看技术可行还要看经济可行。Gate 2需要给出"单次SWE-bench RL训练的NPU-hour消耗"数据，让客户对成本有量级感知。3个月后是否能给出indicative pricing需要评估
 34. **P12收束语对外使用的时机管控**（L1+L8+L3联合提出）："Agent时代的竞争在于谁能让Agent更快地从做事中学会做事"作为内部愿景对齐成立，但对外使用需要Gate 2 Demo背书。L3建议先用软化版本"我们正在投入让国产算力平台支持Agent RL训练"，等benchmark结果出来后再升级叙事
+
+## Round 3 Phase 1 产生的待深入议题
+
+35. **P2桥接层Cursor实证的演讲delivery策略**（L8建议）：Cursor self-summarization作为"迁移实证"定位正确，但演讲时应主动提及"50% compaction error仍未解决"，作为预防针防止听众追问。避免重蹈Round 1"被追问才补充局限性"的被动模式
+36. **P3显式推导链的前提澄清**（L7建议）：推导链"90%推理+分钟级Episode→同步不可行→异步+训推分离"依赖Agent Episode分钟级的特有前提。演讲时需显式区分Agent RL（分钟级，必须异步）和reasoning RL（秒级，同步可行），避免被熟悉verl/OpenRLHF同步方案的听众质疑推导的普适性
+37. **P2桥接层DPO表述精确化**（L8微调建议）："DPO只能教偏好排序"可进一步精确为"DPO的训练信号不来自环境交互，学的是人类偏好的近似而非任务完成的反馈"。当前话术中后半句"它们都无法让模型在做事中学会做事"已覆盖此意，但前半句可以更精确
