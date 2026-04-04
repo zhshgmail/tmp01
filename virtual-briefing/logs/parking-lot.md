@@ -22,3 +22,11 @@
 10. **六项前沿技术的基础设施需求兼容性矩阵**（L6-AI基础设施提出）：CSO需要多模型交替推理、CISPO需要大batch异步训练、ProRL Agent需要训推完全分离架构——这些需求是否互相兼容？能否在统一的基础设施上支持？工程量评估
 11. **三挑战之间的耦合与trade-off分析**（L2-首席架构师提出）：演讲者声称三挑战"正交、互不重叠"，但L2用CSO案例证明归因解法会加剧采集问题。需要系统分析六项技术方案之间的交互效应和trade-off
 12. **技术地图的"实线vs虚线"标注体系**（L3-产品总裁提出）：六项前沿技术在NPU上零项可用，但技术地图未区分"已有能力"和"待建能力"。正式PPT需要增加成熟度、已知风险、NPU适配状态三列
+
+## Phase 5 产生的待深入议题
+
+13. **Agent任务PRM的训练路径与冷启动成本**（L8-后训练专家提出）：CSO的前提是有一个靠谱的process reward model，但Agent任务的PRM基本不存在（数学推理有Qwen Math PRM，Agent领域空白）。需要评估：从零训练Agent PRM的数据标注成本、算力成本，以及是否有bootstrapping方案（如用outcome reward反向蒸馏step-level信号）
+14. **CISPO/DISPO在100步以上Agent轨迹中的importance weight衰减实验**（L7+L8联合提出）：CISPO的2x加速数据来自数学推理（轨迹几十步内），对Agent任务100步以上长轨迹，单步importance ratio 0.95的累积效应导致轨迹级weight趋近于零。需要设计实验量化这个衰减对训练信号的实际影响
+15. **Eagle3投机推理在结构化输出场景下的准确率**（L8-后训练专家提出）：Agent推理包含大量JSON/API调用等结构化token序列，Eagle3的draft model对这类非自然语言输出的投机准确率没有数据。如果准确率低，投机推理反而增加开销。需要在典型Agent工具调用场景下实测
+16. **ProRL Agent昇腾适配详细工程评估**（L4+L6+L7联合提出）：演讲者初估5-8人3个月PoC，但需要细化：vllm-ascend推理引擎对rollout动态batch和长上下文管理的支持程度、Singularity→Docker sandbox层改造工程量、HTTP通信延迟在昇腾集群内网拓扑下的实测数据、与现有MindSpeed RL训练流水线的集成方案
+17. **昇腾集群sandbox编排能力建设**（L6-AI基础设施提出）：Forge需要Firecracker级micro-VM调度（Cursor每秒500+ pods），ProRL Agent需要Singularity容器运行时。当前昇腾集群为batch训练优化，缺乏大规模sandbox编排能力。需要评估在NPU集群上引入轻量级VM/容器编排的可行性和工程量
