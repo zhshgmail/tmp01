@@ -39,3 +39,20 @@
 21. **CANN Next精度行为内部验证**（L6+L7联合提出）：950PR的CANN Next提升了编程兼容性（CUDA-like thread blocks/warps），但L6确认BF16/FP16算子行为与当前CANN差异不大。需要内部验证：CANN Next的精度对齐到底做到什么程度，是否能在不改应用代码的情况下缩小和CUDA的数值差异
 22. **3个月PoC客户demo定义**（L3-产品总裁提出）：3个月后的ProRL Agent PoC需要是"可以带客户看的东西"，不是内部benchmark。需要定义demo的形态：是否包含可视化的训练过程、SWE-bench解题成功率对比、训推一致性的A/B对比展示等
 23. **确定性RL训练作为差异化卖点的市场验证**（L1+L5联合提出）：L8确认RL从业者极度痛恨不可复现性，GPU阵营大规模确定性训练仍是开放问题。但"客户是否愿意为可复现性付费选择昇腾"需要市场验证——与2-3个目标客户做用户调研，确认这个卖点的付费意愿
+
+## Round 2 Phase 1 产生的待深入议题
+
+24. **P2"全部"scope界定：coding/SE Agent vs 企业级Agent的RL渗透率差异量化**（L1+L5联合提出）：微软Agent Lightning/AutoGen、Salesforce AgentForce等企业级Agent产品主要路线是SFT+工具编排而非RL。PPT结论"头部厂商全部引入RL"无法覆盖企业级Agent生态。需要量化不同Agent垂类（coding/SE、企业级CRM/ITSM、多模态）的RL渗透率差异，诚实界定PPT的适用scope
+25. **Google Agent RL公开数据补充或替换案例评估**（L5提出）：P2五案例矩阵中Google行缺乏公开benchmark数据，仅写"内部集成"。要么找到Google Agent RL的公开技术数据，要么替换为有数据支撑的案例（如Microsoft Agent Lightning SQL Agent RL训练），要么在表格中显式标注"公开信息有限"
+26. **MindSpeed RL从reasoning RL扩展到Agent RL的技术路径评估**（L6+L8联合提出）：MindSpeed RL和AReaL目前验证的是reasoning任务的RL训练（数学推理），不是Agent RL（多轮工具调用+环境交互）。从reasoning RL到Agent RL，需要增加rollout管理、外部环境sandbox交互、多轮状态管理等能力。工程量和技术路径需要独立评估
+27. **vllm-ascend支持Agent RL rollout的三项改造优先级排序和人天估计**（L7+L4联合提出）：演讲者识别了三项改造需求——动态batch、prefix caching跨轮复用、工具调用时context挂起与恢复。需要对每项给出人天估计、依赖关系和优先级排序，明确哪些在第一个月PoC scope内、哪些推迟到后续
+
+## Round 2 Phase 2 产生的待深入议题
+
+28. **Gate 1 check项量化基准：ProRL Agent在H100上的rollout性能基线**（L7+L4联合提出）：L7给出H100上单条SWE-bench rollout约5-8分钟，折算910C为8-13分钟。Gate 1定义为30分钟内跑通+4条并发稳定运行。需要在适配过程中持续对比H100基线数据，确保性能差距在可解释范围内
+29. **昇腾集群存储I/O特征与Agent rollout需求的匹配评估**（L6提出）：Agent rollout的环境操作（git操作、文件读写、编译）是小文件随机I/O密集型，训练集群通常优化大块数据吞吐。需要在Gate 1阶段实测rollout过程中环境操作的I/O延迟分布，评估存储是否成为瓶颈
+30. **SWE-bench reward hacking风险缓解方案**（L8提出）：SWE-bench的"测试通过"reward信号不能评估代码质量、设计合理性。Agent可能学会monkey-patching让测试通过但代码质量极差。需要在Gate 2-3阶段设计多维评估信号（代码质量分、diff最小化、编译警告数等）作为辅助reward
+31. **AllReduce确定性实现的方案选型和性能实测**（L8+L7联合提出）：两条路径——固定reduction tree拓扑（预估开销20-30%）vs 确定性ring-reduce（预估开销40-50%）。L8设定阈值：30%以内方向成立，50%以上要重新评估。需要尽快出实测数据。AllReduce是确定性RL方向的关键瓶颈
+32. **Harness工程纳入路线图：SWE-bench参考harness实现**（L2+L1联合提出）：路线图在基础设施层和差异化层都有人力分配，但harness工程——"客户用起来的第一步"——完全没有投入。Gate 2 Demo需要包含SWE-bench Agent RL训练的参考harness实现文档和代码，确保客户看了Demo之后知道自己怎么用
+33. **Gate 2 Demo的商务模型维度**（L3提出）：客户看Demo不只看技术可行还要看经济可行。Gate 2需要给出"单次SWE-bench RL训练的NPU-hour消耗"数据，让客户对成本有量级感知。3个月后是否能给出indicative pricing需要评估
+34. **P12收束语对外使用的时机管控**（L1+L8+L3联合提出）："Agent时代的竞争在于谁能让Agent更快地从做事中学会做事"作为内部愿景对齐成立，但对外使用需要Gate 2 Demo背书。L3建议先用软化版本"我们正在投入让国产算力平台支持Agent RL训练"，等benchmark结果出来后再升级叙事
