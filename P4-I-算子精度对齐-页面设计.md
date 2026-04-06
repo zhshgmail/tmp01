@@ -95,10 +95,10 @@ CANN（昇腾）与CUDA（NVIDIA）的LayerNorm、AllReduce等算子在第5-6位
 - 上方：KL散度实时曲线（绿色正常区 → 黄色预警区 → 红色报警区）
 - 中间：算子精度热力图（LayerNorm🔴高差异 / Softmax🟡中差异 / Embedding🟢低差异 / AllReduce🔴高差异）
 - 下方：一行状态条"Flash Attention v2.5.8 锁定 ✓ / CANN 8.0.RC3 基线 ✓"
-来源：Scaling FP8 Training (ICLR'25) / 工程实践
+来源：Miles FP8 E2E (LMSYS Blog 2025.11) / verl FP8实践 / 工程实践
 
-**来源**：多来源工程实践 + ICLR'25学术论文
-**链接**：[Scaling FP8 Training](https://proceedings.iclr.cc/paper_files/paper/2025/file/f48b5133e89854a9e97cc22a6db83f25-Paper-Conference.pdf)
+**来源**：Miles/LMSYS FP8 E2E实践（含KL监控方法）+ verl框架精度对齐机制 + 华为内部910B实测经验（L8数据）
+**链接**：[Miles FP8 E2E (LMSYS Blog 2025.11.25)](https://www.lmsys.org/blog/2025-11-25-fp8-rl/) | [verl FP8文档](https://github.com/volcengine/verl) | [FP8 RL分析 arXiv:2601.18150](https://arxiv.org/abs/2601.18150)
 
 ---
 
