@@ -271,6 +271,18 @@
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
+### 七维变化详细说明（PPT左半页 side note）
+
+| 维度 | LLM RL | Agentic RL | 变化含义 |
+|------|--------|-----------|---------|
+| ①算力 | 训练吃大头，推理只是serving | 推理占90%+算力，推训比反转 | rollout生成（推理）成为整个训练的瓶颈，推理效率=训练效率 |
+| ②循环 | 开环：先离线采集数据，再离线训练 | 闭环：探索→环境反馈→策略更新→再探索，不停转 | 训练和数据产生是一个持续运行的闭环，不能分阶段 |
+| ③环境 | 无真实环境，奖励来自人类标注 | 世界即训练场：sandbox执行代码、浏览器交互、工具调用 | 环境成为训练基础设施的一部分，环境速度直接决定数据产出速度 |
+| ④数据 | 人标的，离线攒好再用，可反复复用 | 自己跑出来的，边跑边产用完即弃（on-policy） | 数据不能预生成，每条轨迹只用一次，数据产生速率被推理和环境速度卡死 |
+| ⑤奖励 | "像不像人"，模型拟合人类偏好 | "有没有用"，代码能跑、任务能成（环境验证） | 奖励信号来自环境而非人类，稀疏且延迟（Episode结束才有结果） |
+| ⑥探索 | KL约束在reference model附近小范围探索 | 大探索空间，需要发现标注者到不了的策略 | 有效轨迹占比极低，大量算力花在无用探索上 |
+| ⑦上下文 | prompt+response几百到几千token | Agent多轮交互累积到128K-1M token | KV Cache随轮次单调增长，显存压力和注意力分散同时恶化 |
+
 **视觉设计要点**：
 - 右半页不按层分组，六个挑战平铺展示，每个挑战一行
 - 每行三要素：挑战名称、来源维度编号、量化严重性数据+星级标注
@@ -364,6 +376,26 @@
 - **F Off-policy容忍**：异步架构下rollout数据天然过时，必须容忍off-policy。Decoupled PPO做actor-learner物理分离+V-trace修正（基础），DAPO四大技术稳定梯度方差（ByteDance），CISPO精细裁剪IS权重加速2x（MiniMax），REINFORCE++加token-level baseline（Magistral生产验证），Dr.GRPO去除归一化偏差。
 - **G 步级归因**：Agent长轨迹中84%算力浪费在非关键步骤。PRIME在线训练隐式PRM无需标注（2.5x样本效率），iStar从轨迹偏好学隐式step奖励，Cursor+Meta方案通过密集闭环天然获取过程信号。
 - **H 上下文自压缩**：M级上下文推理开销爆炸，模型需学会自主压缩。Cursor self-summarization通过RL训练将200K压到1K（error降50%），ACON做可学习的上下文压缩策略，高价值Token重分配将算力集中在关键决策步骤。
+
+### Side Notes：技术点详细参考（演讲备查）
+
+**A方向**：LMCache（U of Chicago, [arXiv:2510.09665](https://arxiv.org/abs/2510.09665)，跨引擎KV共享15x吞吐）| Mooncake（月之暗面, [arXiv:2407.00079](https://arxiv.org/abs/2407.00079)，Prefill-Decode分离，FAST'25）| Prefix Cache（vLLM内置前缀复用）
+
+**B方向**：Forge（MiniMax, [HF Blog](https://huggingface.co/blog/MiniMax-AI/forge-scalable-agent-rl-framework-and-algorithm)，Agent-环境解耦40x加速）| ROLL Flash（阿里, [arXiv:2510.11345](https://arxiv.org/abs/2510.11345)，异步rollout 1.81-2.72x）| 环境池化（ROLLART [arXiv:2512.22560](https://arxiv.org/pdf/2512.22560)）
+
+**I方向**：FP8 E2E（LMSYS, [Blog 2025.11](https://www.lmsys.org/blog/2025-11-25-fp8-rl/)，统一训推精度消除KL偏差）| R3 Routing Replay（[arXiv:2510.11370](https://arxiv.org/abs/2510.11370)，MoE路由对齐）| 数值监控（Kurtosis早期预警, [ICLR'25](https://proceedings.iclr.cc/paper_files/paper/2025/file/f48b5133e89854a9e97cc22a6db83f25-Paper-Conference.pdf)）
+
+**C方向**：Eagle-3（PKU/MSRA, [arXiv:2503.01840](https://arxiv.org/abs/2503.01840)，4.79x加速，NeurIPS'25）| MXFP4/8量化（OCP标准, [arXiv:2411.09909](https://arxiv.org/html/2411.09909v2)）| DAS（[arXiv:2511.13841](https://arxiv.org/abs/2511.13841)，无参Drafter零训练成本）
+
+**D方向**：ProRL Agent（NVIDIA, [arXiv:2603.18815](https://arxiv.org/abs/2603.18815)，Rollout-as-a-Service）| Dynamo（NVIDIA, [GitHub](https://github.com/ai-dynamo/dynamo)，KV感知路由30x吞吐）| CUDA IPC（[vLLM Blog](https://blog.vllm.ai/2025/11/13/shm-ipc-cache.html)，零拷贝权重共享）
+
+**E方向**：RollPacker/Tail Batching（阿里, [arXiv:2509.21009](https://arxiv.org/abs/2509.21009)，2.03-2.56x加速）| APRIL/Partial Rollout（[arXiv:2509.18521](https://arxiv.org/abs/2509.18521)，吞吐+22-44%，ICLR'26）| Overlong Shaping（DAPO论文, [arXiv:2503.14476](https://arxiv.org/abs/2503.14476)）
+
+**F方向**：Decoupled PPO/DVPO（[arXiv:2502.16944](https://arxiv.org/html/2502.16944v1)，显存-40%时间-35%）| DAPO（ByteDance, [arXiv:2503.14476](https://arxiv.org/abs/2503.14476)，AIME 50分）| CISPO（MiniMax, [arXiv:2506.13585](https://arxiv.org/abs/2506.13585)，2x加速）| REINFORCE++（[arXiv:2501.03262](https://arxiv.org/abs/2501.03262)，Magistral生产验证）| Dr.GRPO（[arXiv:2503.20783](https://arxiv.org/abs/2503.20783)，COLM'25）
+
+**G方向**：PRIME（清华/上海AI Lab, [arXiv:2502.01456](https://arxiv.org/abs/2502.01456)，2.5x样本效率）| iStar（阿里DAMO, [arXiv:2509.19199](https://arxiv.org/abs/2509.19199)，隐式step奖励）| Cursor实时RL（[Blog](https://cursor.com/blog/real-time-rl-for-composer)，5小时迭代）| Meta SSR（[arXiv:2512.18552](https://arxiv.org/abs/2512.18552)，ICLR'26）
+
+**H方向**：Cursor Self-Summarization（[Blog](https://cursor.com/blog/self-summarization)，200K→1K，error-50%）| ACON（[arXiv:2510.00615](https://arxiv.org/abs/2510.00615)，token-26-54%）| 高价值Token重分配（GTPO [arXiv:2508.04349](https://arxiv.org/abs/2508.04349)；ShapE-GRPO [arXiv:2603.29871](https://arxiv.org/html/2603.29871)）
 
 **视觉设计要点**：
 - 一张大表占满全页，不画架构图
