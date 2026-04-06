@@ -14,17 +14,17 @@
 
 **左侧标签**：核心挑战
 
-### ① 跨精度logprob偏差
+### ① 跨精度logprob偏差 — P3挑战❻方面a
 FP8 rollout + BF16训练产生系统性logprob偏差。PPO的importance ratio要求分子分母数值可比，但rollout用FP8、训练用BF16，同一token在两条路径上算出不同的log概率。偏差不是随机噪声，是有方向的系统性偏移，随训练步数持续累积。
 
 **关键数据**：无FP8 E2E时，训推KL初始即显著偏大且随训练持续增长；有FP8 E2E后KL全程维持近零（LMSYS实测）。
 
-### ② MoE跨引擎路由不一致
+### ② MoE跨引擎路由不一致 — P3挑战❻方面b
 MoE模型在推理引擎（如SGLang）和训练框架（如Megatron）中对相同输入选择不同Expert路径。路由分叉→logprob不一致→importance ratio失真→RL训练崩溃。Qwen3-30B-A3B实测：无R3时前几百步即发生RL collapse。
 
 **关键数据**：R3 Routing Replay额外开销<5%，但将训推KL散度降低近50%，完全防止RL训练崩溃。
 
-### ③ 跨硬件算子数值差异
+### ③ 跨硬件算子数值差异 — P3挑战❻方面c
 CANN（昇腾）与CUDA（NVIDIA）的LayerNorm、AllReduce等算子在第5-6位有效数字存在差异。预训练能容忍（最终收敛到同一loss），但RL的importance ratio放大机制让微小差异经千步累积为可观测的策略偏移。
 
 **关键数据**（L8实测910B）：LayerNorm精度差异导致reward曲线300步后与GPU偏移2-3个百分点，根因定位花了一周。
