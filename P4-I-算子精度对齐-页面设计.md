@@ -24,10 +24,10 @@ MoE模型在推理引擎（如SGLang）和训练框架（如Megatron）中对相
 
 **关键数据**：R3 Routing Replay额外开销<5%，但将训推KL散度降低近50%，完全防止RL训练崩溃。
 
-### ③ 跨硬件算子数值差异 — P3挑战❻方面c
-CANN（昇腾）与CUDA（NVIDIA）的LayerNorm、AllReduce等算子在第5-6位有效数字存在差异。预训练能容忍（最终收敛到同一loss），但RL的importance ratio放大机制让微小差异经千步累积为可观测的策略偏移。
+### ③ 批次大小导致的浮点非确定性 — P3挑战❻方面c
+同一模型、同一输入，不同batch size下reduction kernel（LayerNorm、Softmax、MatMul）的分块顺序不同，浮点非结合性（a+b+c ≠ a+c+b）导致输出不一致。RL训练中batch size动态变化（不同rollout长度导致padding不同），logprob在每次计算时都可能有微小抖动，经千步累积为不可忽略的策略偏移。
 
-**关键数据**（L8实测910B）：LayerNorm精度差异导致reward曲线300步后与GPU偏移2-3个百分点，根因定位花了一周。
+**关键数据**：Thinking Machines Lab实测——标准推理引擎中，仅改变batch size就导致同一prompt的输出完全不同（非温度采样导致，是浮点运算顺序导致）。SGLang集成batch-invariant算子后实现100%可复现RL训练。
 
 ---
 
@@ -80,31 +80,31 @@ CANN（昇腾）与CUDA（NVIDIA）的LayerNorm、AllReduce等算子在第5-6位
 
 ---
 
-### 创新③ 数值一致性监控与校准
+### 创新③ Batch Invariant Ops（批不变性算子）
 
-**一句话**：将训推logprob的KL散度作为健康指标实时监控——超阈值报警，从"事后排查"转为"事前预防"。
+**一句话**：替换所有reduction kernel为批不变实现——无论batch size如何变化，同一输入始终产生bit-wise相同的输出，从根源消除RL训练的浮点非确定性。
 
 **核心机制**：
-- **实时KL监控**：每N步计算训练侧和推理侧对同一batch的logprob KL散度，作为数值健康指标
-- **Kurtosis早期预警**：监控QKV激活分布的峰度（Kurtosis），峰度突变预示loss spike
-- **Flash Attention版本锁定**：不同版本FA的数值行为有微妙差异，锁定版本避免隐性漂移
-- **算子精度档案**：逐算子建立CANN vs CUDA的数值diff基线（目前已完成5个RL关键路径算子）
+- **问题根源**：LLM推理的非确定性不来自随机采样，而来自浮点非结合性——不同batch size导致reduction kernel的分块方式不同，加法顺序变化→结果变化。RL训练中batch size随rollout长度动态变化，每次logprob计算都有微小抖动
+- **Batch Invariant Kernels**：重写LayerNorm、RMSNorm、Softmax、MatMul等reduction kernel，固定分块大小和reduction顺序，使输出与batch size无关
+- **SGLang集成**：与CUDA Graphs、Radix Cache、Chunked Prefill兼容，性能开销仅34.35%（对比Thinking Machines原始实现61.5%开销）
+- **RL训练验证**：SGLang + slime协作实现100%可复现RL训练——同一checkpoint两次运行产生bit-wise相同的reward曲线
 
-**图示建议**：
-画一张**监控仪表盘示意图**：
-- 上方：KL散度实时曲线（绿色正常区 → 黄色预警区 → 红色报警区）
-- 中间：算子精度热力图（LayerNorm🔴高差异 / Softmax🟡中差异 / Embedding🟢低差异 / AllReduce🔴高差异）
-- 下方：一行状态条"Flash Attention v2.5.8 锁定 ✓ / CANN 8.0.RC3 基线 ✓"
-来源：Miles FP8 E2E (LMSYS Blog 2025.11) / verl FP8实践 / 工程实践
+**图示建议**（参考Thinking Machines Lab博客图）：
+画一张**批不变性原理对比图**：
+- 左图"标准推理"：Batch=[A,B,C]和Batch=[A,B]中，A的输出不同（reduction分块不同→浮点累加顺序不同→结果不同）
+- 右图"Batch Invariant"：无论batch怎么变，A的输出始终相同（固定分块大小→固定累加顺序→结果确定）
+- 底部数据：SGLang集成后性能开销34.35%，实现100%可复现RL训练
+来源：Thinking Machines Lab "Defeating Nondeterminism in LLM Inference" (2025.9) / SGLang Blog (2025.9)
 
-**来源**：Miles/LMSYS FP8 E2E实践（含KL监控方法）+ verl框架精度对齐机制 + 华为内部910B实测经验（L8数据）
-**链接**：[Miles FP8 E2E (LMSYS Blog 2025.11.25)](https://www.lmsys.org/blog/2025-11-25-fp8-rl/) | [verl FP8文档](https://github.com/volcengine/verl) | [FP8 RL分析 arXiv:2601.18150](https://arxiv.org/abs/2601.18150)
+**来源**：Thinking Machines Lab（新加坡，估值$10亿+独角兽）+ SGLang/LMSYS（UC Berkeley）
+**链接**：[Thinking Machines Lab Blog](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/) | [SGLang Deterministic Inference Blog](https://www.lmsys.org/blog/2025-09-22-sglang-deterministic/) | [SGLang GitHub Issue #10278](https://github.com/sgl-project/sglang/issues/10278)
 
 ---
 
 ## 底部总结条（全宽）
 
-**趋势判断**：业界正从"训练完了再查精度问题"转向"训练全程数值可观测+自动干预"。FP8 E2E已成为高效RL训练的标配，MoE路由对齐是MoE模型做RL的前置条件。**对NPU的启示**：算子精度对齐不是"nice-to-have"——在RL场景下，它是训练能否收敛的生死线。CANN vs CUDA的逐算子精度档案是华为独有的差异化资产。
+**趋势判断**：业界正从三个层面系统性消除RL训推数值分叉——NVIDIA用FP8 E2E统一精度、小米用R3对齐MoE路由、Thinking Machines用Batch Invariant Ops消除浮点非确定性。三者互补而非替代：FP8 E2E解决跨精度偏差，R3解决跨引擎路由分叉，Batch Invariant解决跨batch数值抖动。**对NPU的启示**：算子精度对齐不是"nice-to-have"——在RL场景下，它是训练能否收敛的生死线。昇腾上实现batch-invariant算子是差异化机会。
 
 ---
 
@@ -115,22 +115,23 @@ CANN（昇腾）与CUDA（NVIDIA）的LayerNorm、AllReduce等算子在第5-6位
 │ 算子精度对齐：消除训推数值分叉，让RL训练信号可信赖                      │
 │ 挑战❻训推数值不一致 → 技术升级方向I → 三项关键创新                    │
 ├──────┬─────────────────┬─────────────────┬───────────────────────────┤
-│      │ ① 跨精度偏差     │ ② MoE路由不一致  │ ③ 跨硬件算子差异           │
-│ 核心 │ FP8推理+BF16训练 │ SGLang vs Megatron│ CANN vs CUDA             │
-│ 挑战 │ →logprob系统偏移 │ →Expert路径分叉   │ →第5-6位有效数字差异      │
-│      │ KL持续增长       │ →前几百步RL crash │ →reward 300步后偏移2-3%   │
+│      │ ① 跨精度偏差     │ ② MoE路由不一致  │ ③ 浮点非确定性             │
+│ 核心 │ FP8推理+BF16训练 │ SGLang vs Megatron│ batch size变→输出变      │
+│ 挑战 │ →logprob系统偏移 │ →Expert路径分叉   │ →浮点非结合性导致         │
+│      │ KL持续增长       │ →前几百步RL crash │ →RL训练不可复现           │
 ├──────┼─────────────────┼─────────────────┼───────────────────────────┤
 │      │                 │                 │                           │
-│ 关键 │ ① FP8 E2E       │ ② R3 Routing    │ ③ 数值监控与校准           │
-│ 创新 │    Pipeline      │    Replay       │                           │
+│ 关键 │ ① FP8 E2E       │ ② R3 Routing    │ ③ Batch Invariant        │
+│ 创新 │    Pipeline      │    Replay       │    Ops                   │
 │      │                 │                 │                           │
-│ 用统 │ [KL散度对比图]   │ [路由一致性图]   │ [监控仪表盘示意图]         │
-│ 一精 │ 红线:无E2E KL↑   │ 左:不一致→crash │ KL曲线+算子热力图          │
-│ 度消 │ 绿线:有E2E KL≈0  │ 右:R3→稳定     │ +版本锁定状态              │
-│ 除偏 │                 │ 开销<5%         │                           │
-│ 差   │ LMSYS/SGLang    │ PKU/Alibaba     │ 工程实践/ICLR'25          │
+│ 背书 │ [KL散度对比图]   │ [路由一致性图]   │ [批不变性原理对比图]       │
+│      │ 红线:无E2E KL↑   │ 左:不一致→crash │ 左:标准→batch变输出变     │
+│      │ 绿线:有E2E KL≈0  │ 右:R3→稳定     │ 右:BI→batch变输出不变     │
+│      │                 │ 开销<5%         │ 开销34%,100%可复现RL      │
+│      │ NVIDIA/LMSYS    │ 小米/北大        │ Thinking Machines/SGLang  │
 ├──────┴─────────────────┴─────────────────┴───────────────────────────┤
-│ 趋势：从"训练完查精度"→"全程数值可观测+自动干预"。FP8 E2E已成标配，     │
-│ MoE路由对齐是MoE RL前置条件。NPU启示：CANN精度档案是华为差异化资产。    │
+│ 趋势：三个层面系统性消除训推数值分叉——NVIDIA统一精度、小米对齐路由、      │
+│ Thinking Machines消除浮点非确定性。三者互补。NPU启示：batch-invariant    │
+│ 算子是昇腾差异化机会。                                                  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
